@@ -220,6 +220,55 @@ dayIndex = floor((block.timestamp + JST_OFFSET) / DAY) (uint32)
 
 ---
 
+## Farcaster Mini App 開発ルール【必読】
+
+### LLM/AI向け禁止事項
+
+以下は**絶対に行ってはならない**：
+
+- ❌ `fc:frame` メタタグを新規実装に使用（レガシー専用）
+- ❌ Frames v1 構文の使用（`fc:frame:image`, `fc:frame:button` など）
+- ❌ マニフェストに存在しないフィールドの作成
+- ❌ `"version": "next"` の使用（`"1"` を使用）
+- ❌ 2024年以前の古い例の参照
+- ❌ Frame と Mini App の用語混同
+
+### LLM/AI向け必須事項
+
+以下は**必ず遵守**：
+
+- ✅ `fc:miniapp` メタタグを使用
+- ✅ `@farcaster/miniapp-sdk` の公式スキーマに準拠
+- ✅ マニフェストでは `miniapp` または `frame` を使用（`frames` ではない）
+- ✅ `sdk.actions.ready()` を必ず呼び出す（スプラッシュスクリーン非表示に必須）
+- ✅ マニフェストのドメインは完全一致（サブドメイン含む）
+
+### トラブルシューティング チェックリスト
+
+| チェック項目 | コマンド/確認方法 | 成功条件 |
+|-------------|------------------|----------|
+| マニフェスト存在 | `curl -s {domain}/.well-known/farcaster.json` | HTTP 200, 有効なJSON |
+| マニフェスト署名 | `payload` をデコードしてドメイン確認 | ホスティングドメインと一致 |
+| Embedメタタグ | `curl -s {url} \| grep fc:miniapp` | メタタグが存在 |
+| プレビュー | `https://farcaster.xyz/~/developers/mini-apps/preview?url={url}` | アプリが読み込まれる |
+| ready()呼び出し | ブラウザコンソール確認 | `ready()` が呼ばれている |
+
+### 開発ツール
+
+| ツール | URL |
+|--------|-----|
+| マニフェスト生成 | https://farcaster.xyz/~/developers/mini-apps/manifest |
+| プレビューツール | https://farcaster.xyz/~/developers/mini-apps/preview |
+| Embedツール | https://farcaster.xyz/~/developers/mini-apps/embed |
+
+### 重要な注意事項
+
+1. **ngrok等のトンネルURL**: `addMiniApp()` など一部SDK機能が動作しない
+2. **マニフェストのaccountAssociation**: デプロイ後にFarcasterツールで生成が必要
+3. **画像要件**: OG画像は3:2比率、スプラッシュ画像は200x200px
+
+---
+
 ## 変更履歴
 
 | 日付 | 変更内容 |
@@ -227,3 +276,4 @@ dayIndex = floor((block.timestamp + JST_OFFSET) / DAY) (uint32)
 | 2025-12-13 | 初版作成 |
 | 2025-12-14 | モノレポ構成に変更 |
 | 2025-12-14 | プロジェクト名を Life Games に変更 |
+| 2025-12-14 | Farcaster Mini App 開発ルールを追加 |

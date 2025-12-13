@@ -1,0 +1,23 @@
+{
+  "accountAssociation": {
+    "header": "",
+    "payload": "",
+    "signature": ""
+  },
+  "miniapp": {
+    "version": "1",
+    "name": "Life Games",
+    "iconUrl": "https://life-games.vercel.app/icon.png",
+    "homeUrl": "https://life-games.vercel.app",
+    "splashImageUrl": "https://life-games.vercel.app/splash.png",
+    "splashBackgroundColor": "#000000",
+    "description": "Conway's Game of Life NFT Competition on Base. Design your 20x20 board and compete weekly!",
+    "primaryCategory": "games",
+    "tags": ["nft", "game-of-life", "competition", "base"],
+    "requiredChains": ["eip155:8453"],
+    "requiredCapabilities": [
+      "wallet.getEthereumProvider",
+      "actions.signIn"
+    ]
+  }
+}
