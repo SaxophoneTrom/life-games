@@ -1,0 +1,12 @@
+{
+  "name": "life-games",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter webapp dev",
+    "build": "pnpm --filter webapp build",
+    "start": "pnpm --filter webapp start",
+    "lint": "pnpm --filter webapp lint",
+    "forge:build": "cd packages/contracts && forge build",
+    "forge:test": "cd packages/contracts && forge test"
+  }
+}
