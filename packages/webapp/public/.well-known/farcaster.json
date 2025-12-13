@@ -1,0 +1,26 @@
+{
+  "accountAssociation": {
+    "header": "eyJmaWQiOjQxNTM2OCwidHlwZSI6ImF1dGgiLCJrZXkiOiIweDkzM0U1MzRENjM3YWQyYmY5NWYwNDI2QTJmRDc4NDBkNDY2RDZkYmQifQ",
+    "payload": "eyJkb21haW4iOiJiYXNlLWxpZmUtZ2FtZXMudmVyY2VsLmFwcCJ9",
+    "signature": "qkvMdExBJiwQNTMOPInBC+wFU2NLdDZNMTsB9N3K+PNuTCjBsfaIGta0qsuvAsQl6UEE3pTP7QEBnb4FIKmvyxw="
+  },
+  "miniapp": {
+    "version": "1",
+    "name": "Game of Life on BASE",
+    "homeUrl": "https://base-life-games.vercel.app",
+    "iconUrl": "https://base-life-games.vercel.app/icon.png",
+    "splashImageUrl": "https://base-life-games.vercel.app/splash.png",
+    "splashBackgroundColor": "#0B0F14",
+    "primaryCategory": "art-creativity",
+    "tags": ["art", "nft", "game", "life"],
+    "tagline": "Create Life, Mint Art",
+    "subtitle": "Conway's Game of Life NFT",
+    "description": "Create unique art with Conway's Game of Life. Inject cells, watch evolution, mint NFT.",
+    "heroImageUrl": "https://base-life-games.vercel.app/api/og/default",
+    "screenshotUrls": [],
+    "ogTitle": "Game of Life on BASE",
+    "ogDescription": "Create unique art with Conway's Game of Life on Base",
+    "ogImageUrl": "https://base-life-games.vercel.app/api/og/default",
+    "noindex": true
+  }
+}
