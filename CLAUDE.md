@@ -1,10 +1,17 @@
-# Life Games - プロジェクト CLAUDE.md
+# Farcaster Infinite Life - プロジェクト CLAUDE.md
 
 ## プロジェクト概要
 
-Farcaster Mini App として動作する、Conway's Game of Life を題材にした週次NFTコンペティションアプリ。
-ユーザーは20×20のボードを設計し、256世代シミュレーション後の生存セル数が目標値に近いほど高スコアを獲得。
-Base チェーン上でNFTとしてミントし、週次で賞金を分配する。
+Farcaster Mini App として動作する、共有型 Conway's Game of Life アートプロジェクト。
+64×64、16色のグローバル共有ボードに対して、ユーザーが「セグメント」（5〜30世代、範囲は変更可能）を購入し、
+セルを注入してシミュレーションを進める。各セグメントはNFTとしてミントされ、
+後からオフチェーンレンダラーでMP4が生成されて公開される。
+
+### コンセプト
+- **1つのグローバルボード**: 全ユーザーで共有、世代は単調増加
+- **セグメント購入**: 5〜30世代分を購入（範囲は変更可能）、最大 `floor(n/2)` 個のセルを注入
+- **即時ミント → 後で公開**: pending NFT → MP4 reveal
+- **Farcaster連携**: FIDをオンチェーン記録
 
 ---
 
@@ -23,15 +30,19 @@ Base チェーン上でNFTとしてミントし、週次で賞金を分配する
 │   │   ├── src/
 │   │   │   ├── app/             # App Router
 │   │   │   │   ├── layout.tsx
-│   │   │   │   ├── page.tsx     # ホーム画面
-│   │   │   │   ├── editor/      # エディタ画面
-│   │   │   │   ├── leaderboard/ # リーダーボード画面
-│   │   │   │   ├── my/          # マイページ画面
-│   │   │   │   ├── admin/       # 管理画面
+│   │   │   │   ├── page.tsx     # ホーム画面（ボード表示）
+│   │   │   │   ├── buy/         # セグメント購入画面
+│   │   │   │   ├── segment/[id] # セグメント詳細画面
 │   │   │   │   └── api/         # API Routes
+│   │   │   │       ├── token/[id]/route.ts    # NFTメタデータ
+│   │   │   │       └── dispatch-render/route.ts
 │   │   │   ├── components/      # 共通コンポーネント
 │   │   │   ├── hooks/           # カスタムフック
 │   │   │   ├── lib/             # ユーティリティ
+│   │   │   │   ├── life-engine.ts    # Life シミュレーション（決定論的）
+│   │   │   │   ├── color-rules.ts    # 16色カラールール
+│   │   │   │   ├── state-encoding.ts # StateV1 エンコーディング
+│   │   │   │   └── gif-renderer.ts   # プレビューGIF生成
 │   │   │   ├── providers/       # Context Providers
 │   │   │   └── types/           # TypeScript型定義
 │   │   ├── public/              # 静的ファイル
@@ -40,25 +51,28 @@ Base チェーン上でNFTとしてミントし、週次で賞金を分配する
 │   └── contracts/               # Foundry プロジェクト
 │       ├── foundry.toml
 │       ├── src/
-│       │   ├── LifeLeagueNFT.sol
-│       │   ├── SeasonSettlement.sol
-│       │   ├── WallRegistry.sol
-│       │   └── libraries/
-│       │       └── BoardLib.sol
+│       │   └── SegmentNFT.sol   # メインコントラクト
 │       ├── test/
 │       ├── script/
 │       └── lib/                 # forge dependencies (Git除外)
 │
+├── .github/
+│   └── workflows/
+│       └── render-segment.yml   # セグメントレンダリング用 Actions
+│
+├── _backup_life_league/         # 旧プロジェクトバックアップ（Git除外）
+│
 └── docs/
-    ├── requirements/            # 要件定義ドキュメント（Git除外）
-    └── life_games_spec_v0_1.md
+    ├── requirements/
+    │   ├── art/
+    │   │   └── farcaster_infinite_life_mvp_spec.md  # MVP仕様書【必読】
+    │   └── battle/              # 旧プロジェクト要件（参照用）
+    └── TODO_old.md              # 旧TODO
 ```
 
 ---
 
 ## Vercelデプロイ設定
-
-Vercelにデプロイする際は以下の設定を使用：
 
 | 項目 | 値 |
 |------|-----|
@@ -68,25 +82,14 @@ Vercelにデプロイする際は以下の設定を使用：
 
 ---
 
-## 開発TODO【常に参照】
-
-**実装作業前に必ず `docs/TODO.md` を確認すること。**
-
-タスクの進捗管理、優先度、現在の状態はすべて `docs/TODO.md` に記載。
-新しいセッション開始時は最初にこのファイルを読み、現在の状態を把握する。
-
----
-
-## 要件定義ドキュメント参照
+## 要件定義ドキュメント参照【必読】
 
 実装前に必ず以下のドキュメントを確認すること：
 
 | ドキュメント | パス | 内容 |
 |-------------|------|------|
-| MVP要件定義 | `docs/requirements/mvp_requirements_v1.md` | ユーザーストーリー、画面仕様、スコアリング |
-| 技術スタック | `docs/requirements/tech_stack_v1.md` | 使用技術、DB設計、環境変数 |
-| コントラクト仕様 | `docs/requirements/smart_contract_spec_v1.md` | 3つのコントラクト詳細 |
-| API仕様 | `docs/requirements/api_spec_v1.md` | エンドポイント、認証フロー |
+| **MVP仕様書** | `docs/requirements/art/farcaster_infinite_life_mvp_spec.md` | 全体設計、コントラクト、API、レンダリング |
+| **詳細設計書** | `docs/requirements/art/detailed_design.md` | コントラクト詳細、DB設計、画面設計、i18n |
 
 ---
 
@@ -96,12 +99,10 @@ Vercelにデプロイする際は以下の設定を使用：
 
 以下の情報は**絶対に**ソースコードにハードコードしてはならない：
 
-- `SIGNER_PRIVATE_KEY` - サーバー署名用秘密鍵
-- `SUPABASE_SERVICE_ROLE_KEY` - Supabase管理キー
+- `FINALIZER_PRIVATE_KEY` - セグメント確定用秘密鍵
+- `GITHUB_TOKEN` - GitHub Actions dispatch用
 - `ALCHEMY_API_KEY` - Alchemy APIキー
 - `BASESCAN_API_KEY` - Basescan APIキー
-- 管理者ウォレットアドレスのリスト
-- TOTP秘密鍵
 - その他すべてのAPIキー、秘密鍵、トークン
 
 ### 環境変数の管理
@@ -110,6 +111,7 @@ Vercelにデプロイする際は以下の設定を使用：
 ✅ 正しい方法:
    - .env.local に記載（Git除外）
    - Vercelの環境変数設定で管理
+   - GitHub Secretsで管理（Actions用）
    - process.env.XXX で参照
 
 ❌ 禁止行為:
@@ -121,24 +123,71 @@ Vercelにデプロイする際は以下の設定を使用：
 
 ### コミット前チェック
 
-コミット前に以下を確認：
 1. `git diff --staged` で秘密情報が含まれていないか
 2. `.env` ファイルがステージングされていないか
 3. ログ出力に秘密情報が含まれていないか
 
 ---
 
+## 重要な仕様【MVP】
+
+### ボードパラメータ
+
+| パラメータ | 値 |
+|-----------|-----|
+| サイズ | 64×64（4,096セル） |
+| パレット | 16色（インデックス 0〜15） |
+| トポロジー | Moore近傍（8方向） |
+| ルール | Birth: 3, Survival: 2-3 |
+
+### セグメント購入
+
+| パラメータ | 値 |
+|-----------|-----|
+| nGenerations | 5〜30（範囲は変更可能） |
+| 注入セル数上限 | `floor(nGenerations / 2)` |
+| セルエンコーディング | 3バイト/セル（x, y, colorIndex） |
+
+### カラールール（決定論的）
+
+**誕生時**: 3つの親セルのRGB平均 → 最近接パレット色
+**生存時**: 自身75% + 隣接平均25% → 最近接パレット色
+**死亡時**: 即座に死（残光なし）
+
+### 状態エンコーディング（StateV1）
+
+```
+aliveBitset: 4,096 bits = 512 bytes（行優先 i = y*64 + x）
+colorNibbles: 4,096 * 4 bits = 2,048 bytes（2セル/byte）
+合計: 2,560 bytes
+
+stateRoot = keccak256(StateV1Bytes)
+```
+
+---
+
 ## UIレイアウト規約
 
-### レイアウト変更
-- ヘッダーをシンプルに（ロゴ+サインイン状態のみ）
-- フッターを削除
-- 下部にタブナビゲーションを固定配置（Home, Create, Leaderboard, My）
+### 言語
+- **デフォルト**: 英語
+- **対応言語**: 英語 / 日本語（切替可能）
+- **切替UI**: ヘッダー右上に言語スイッチャー
 
 ### 全体レイアウト
-- 縦長スマホ画面に最適化
-- コンテンツは下タブの上までスクロール
+- 縦長スマホ画面に最適化（424×695px web / デバイス依存 mobile）
 - 100vhを使用してフル画面表示
+- 64×64ボードはピンチズーム対応
+- **ヘッダー**: ロゴ + 言語切替のみ（ウォレットボタンなし）
+- **ナビゲーション**: 下部固定タブナビ（Home, Buy, Gallery, My）
+
+### 主要画面（5画面）
+| パス | 画面名 | 説明 |
+|------|--------|------|
+| `/` | Home | 現在のボード状態、最新セグメント一覧 |
+| `/buy` | Buy | 世代数選択、セル配置、プレビューGIF、購入 |
+| `/segment/[id]` | Segment Detail | pending/revealed状態、シェア |
+| `/gallery` | Gallery | 過去セグメント・エポック一覧 |
+| `/my` | My Page | 自分のセグメント、無料ミント可能エポック |
 
 ---
 
@@ -148,13 +197,14 @@ Vercelにデプロイする際は以下の設定を使用：
 
 | カテゴリ | 技術 |
 |---------|------|
-| フロントエンド | Next.js 16 (App Router) |
+| フロントエンド | Next.js 15 (App Router) |
 | スタイリング | Tailwind CSS 4 |
 | 状態管理 | React Query + Zustand |
 | Web3 | wagmi + viem |
 | バックエンド | Next.js API Routes |
-| データベース | Supabase (PostgreSQL) |
 | コントラクト | Foundry (Solidity 0.8.24) |
+| レンダラー | GitHub Actions |
+| ストレージ | GitHub Releases / IPFS |
 | チェーン | Base Sepolia (開発) → Base Mainnet (本番) |
 
 ### コマンド
@@ -172,7 +222,8 @@ pnpm forge:test    # コントラクトテスト
 1. **TypeScript 必須** - any型の使用は極力避ける
 2. **エラーハンドリング** - try-catch で適切にエラー処理
 3. **コメント** - 複雑なロジックには日本語コメント
-4. **命名規則**
+4. **決定論性** - Life エンジン、カラールール、エンコーディングは完全決定論的
+5. **命名規則**
    - コンポーネント: PascalCase
    - 関数・変数: camelCase
    - 定数: UPPER_SNAKE_CASE
@@ -206,75 +257,22 @@ pnpm forge:test    # コントラクトテスト
 
 ---
 
-## 重要な仕様
-
-### スコア計算式
-
-```
-finalAlive = 256世代後の生存セル数
-distance = |finalAlive - targetAlive|
-baseScore = 400 - distance
-
-if (finalAlive == targetAlive) {
-    score = baseScore + 100  // ぴったり賞ボーナス
-} else {
-    score = baseScore
-}
-
-最高スコア: 500点
-```
-
-### ボードエンコーディング
-
-- 20×20グリッド = 400ビット
-- 2つの bytes32 (boardA, boardB) で表現
-- boardA: bit 0-255, boardB: bit 0-143 (上位112ビットは0)
-
-### 時間計算（JST基準）
-
-```
-JST_OFFSET = 32400 seconds (9時間)
-WEEK = 604800 seconds
-DAY = 86400 seconds
-
-seasonId = floor((block.timestamp + JST_OFFSET) / WEEK) (uint32)
-dayIndex = floor((block.timestamp + JST_OFFSET) / DAY) (uint32)
-```
-
----
-
 ## Farcaster Mini App 開発ルール【必読】
 
 ### LLM/AI向け禁止事項
 
-以下は**絶対に行ってはならない**：
-
 - ❌ `fc:frame` メタタグを新規実装に使用（レガシー専用）
-- ❌ Frames v1 構文の使用（`fc:frame:image`, `fc:frame:button` など）
+- ❌ Frames v1 構文の使用
 - ❌ マニフェストに存在しないフィールドの作成
 - ❌ `"version": "next"` の使用（`"1"` を使用）
 - ❌ 2024年以前の古い例の参照
-- ❌ Frame と Mini App の用語混同
 
 ### LLM/AI向け必須事項
 
-以下は**必ず遵守**：
-
 - ✅ `fc:miniapp` メタタグを使用
 - ✅ `@farcaster/miniapp-sdk` の公式スキーマに準拠
-- ✅ マニフェストでは `miniapp` または `frame` を使用（`frames` ではない）
-- ✅ `sdk.actions.ready()` を必ず呼び出す（スプラッシュスクリーン非表示に必須）
-- ✅ マニフェストのドメインは完全一致（サブドメイン含む）
-
-### トラブルシューティング チェックリスト
-
-| チェック項目 | コマンド/確認方法 | 成功条件 |
-|-------------|------------------|----------|
-| マニフェスト存在 | `curl -s {domain}/.well-known/farcaster.json` | HTTP 200, 有効なJSON |
-| マニフェスト署名 | `payload` をデコードしてドメイン確認 | ホスティングドメインと一致 |
-| Embedメタタグ | `curl -s {url} \| grep fc:miniapp` | メタタグが存在 |
-| プレビュー | `https://farcaster.xyz/~/developers/mini-apps/preview?url={url}` | アプリが読み込まれる |
-| ready()呼び出し | ブラウザコンソール確認 | `ready()` が呼ばれている |
+- ✅ `sdk.actions.ready()` を必ず呼び出す
+- ✅ マニフェストのドメインは完全一致
 
 ### 開発ツール
 
@@ -284,21 +282,14 @@ dayIndex = floor((block.timestamp + JST_OFFSET) / DAY) (uint32)
 | プレビューツール | https://farcaster.xyz/~/developers/mini-apps/preview |
 | Embedツール | https://farcaster.xyz/~/developers/mini-apps/embed |
 
-### 重要な注意事項
-
-1. **ngrok等のトンネルURL**: `addMiniApp()` など一部SDK機能が動作しない
-2. **マニフェストのaccountAssociation**: デプロイ後にFarcasterツールで生成が必要
-3. **画像要件**: OG画像は3:2比率、スプラッシュ画像は200x200px
-
 ---
 
 ## 変更履歴
 
 | 日付 | 変更内容 |
 |------|----------|
-| 2025-12-13 | 初版作成 |
-| 2025-12-14 | モノレポ構成に変更 |
-| 2025-12-14 | プロジェクト名を Life Games に変更 |
-| 2025-12-14 | Farcaster Mini App 開発ルールを追加 |
-| 2025-12-14 | docs/TODO.md 作成、CLAUDE.mdに参照追加 |
-| 2025-12-14 | UIレイアウト規約を追加（モバイルファースト） |
+| 2025-12-13 | 初版作成（Life League） |
+| 2025-12-14 | Farcaster Infinite Life に方針転換、CLAUDE.md全面改訂 |
+| 2025-12-14 | 詳細設計書追加、画面設計追加、セグメント範囲5-30、多言語対応(EN/JP) |
+| 2025-12-14 | ボードサイズ 200×200 → 100×100 に変更 |
+| 2025-12-14 | ボードサイズ 100×100 → 64×64 に変更 |

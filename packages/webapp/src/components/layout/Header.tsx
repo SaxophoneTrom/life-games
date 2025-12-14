@@ -1,56 +1,23 @@
-"use client";
+'use client';
 
-import Link from "next/link";
-import { useAccount, useConnect, useDisconnect } from "wagmi";
+import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
 
 export function Header() {
-  const { address, isConnected } = useAccount();
-  const { connect, connectors } = useConnect();
-  const { disconnect } = useDisconnect();
-
-  const handleConnect = () => {
-    const connector = connectors[0];
-    if (connector) {
-      connect({ connector });
-    }
-  };
-
-  const formatAddress = (addr: string) => {
-    return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
-  };
-
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-zinc-800 bg-zinc-950/90 backdrop-blur-sm">
-      <div className="flex h-12 items-center justify-between px-4">
+    <header className="fixed top-0 left-0 right-0 h-11 bg-[#0B0F14] border-b border-white/10 z-50">
+      <div className="flex items-center justify-between h-full px-4 max-w-[424px] mx-auto">
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600">
-            <span className="text-xs font-bold text-white">LG</span>
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 bg-gradient-to-br from-[#F67280] to-[#C06C84] rounded-md flex items-center justify-center">
+            <span className="text-xs font-bold text-white">IL</span>
           </div>
-          <span className="font-semibold text-white text-sm">
-            Life Games
+          <span className="text-base font-semibold text-white">
+            Infinite Life
           </span>
-        </Link>
-
-        {/* Wallet Connection */}
-        <div className="flex items-center">
-          {isConnected && address ? (
-            <button
-              onClick={() => disconnect()}
-              className="flex items-center gap-2 rounded-full bg-zinc-800 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-700 transition-colors"
-            >
-              <div className="h-2 w-2 rounded-full bg-green-500" />
-              {formatAddress(address)}
-            </button>
-          ) : (
-            <button
-              onClick={handleConnect}
-              className="rounded-full bg-blue-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-blue-700 transition-colors"
-            >
-              Sign In
-            </button>
-          )}
         </div>
+
+        {/* Language Switcher */}
+        <LanguageSwitcher />
       </div>
     </header>
   );
