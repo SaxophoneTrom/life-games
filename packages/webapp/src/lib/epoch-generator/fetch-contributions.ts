@@ -45,55 +45,26 @@ export function decodeCells(cellsEncoded: `0x${string}`): Cell[] {
 }
 
 /**
- * コントラクトのgetSegments()を使用してSegment一覧を取得
- * （イベントスキャン不要、ブロック範囲制限なし）
+ * 単一のSegmentを取得
  */
-export async function fetchAllSegmentsFromContract(): Promise<OnchainSegment[]> {
+export async function fetchSegment(tokenId: bigint): Promise<OnchainSegment> {
   const client = createClient();
 
-  // まずtotalSupplyを取得
-  const totalSupply = await client.readContract({
+  const segment = await client.readContract({
     address: SEGMENT_NFT_ADDRESS,
     abi: SEGMENT_NFT_ABI,
-    functionName: 'totalSupply',
-  }) as bigint;
+    functionName: 'getSegment',
+    args: [tokenId],
+  }) as { minter: `0x${string}`; fid: bigint; nGenerations: number; cellsHash: `0x${string}`; mintedAt: bigint };
 
-  if (totalSupply === 0n) {
-    return [];
-  }
-
-  // ページネーションで全件取得（古い順にソートするため逆順で取得）
-  const PAGE_SIZE = 100n;
-  const allSegments: OnchainSegment[] = [];
-
-  for (let offset = 0n; offset < totalSupply; offset += PAGE_SIZE) {
-    const [tokenIds, segmentList] = await client.readContract({
-      address: SEGMENT_NFT_ADDRESS,
-      abi: SEGMENT_NFT_ABI,
-      functionName: 'getSegments',
-      args: [offset, PAGE_SIZE],
-    }) as [bigint[], { minter: `0x${string}`; fid: bigint; nGenerations: number; cellsHash: `0x${string}`; mintedAt: bigint }[], bigint];
-
-    for (let i = 0; i < tokenIds.length; i++) {
-      allSegments.push({
-        tokenId: tokenIds[i],
-        minter: segmentList[i].minter,
-        fid: segmentList[i].fid,
-        nGenerations: segmentList[i].nGenerations,
-        cellsHash: segmentList[i].cellsHash,
-        mintedAt: segmentList[i].mintedAt,
-      });
-    }
-  }
-
-  // tokenId順（古い順）にソート
-  allSegments.sort((a, b) => {
-    if (a.tokenId < b.tokenId) return -1;
-    if (a.tokenId > b.tokenId) return 1;
-    return 0;
-  });
-
-  return allSegments;
+  return {
+    tokenId,
+    minter: segment.minter,
+    fid: segment.fid,
+    nGenerations: segment.nGenerations,
+    cellsHash: segment.cellsHash,
+    mintedAt: segment.mintedAt,
+  };
 }
 
 /**
@@ -157,24 +128,36 @@ export async function fetchSegmentCells(tokenId: bigint, mintedAt?: bigint): Pro
  * lastProcessedBlockより後にmintされたSegmentを取得し、
  * Contribution形式に変換する
  *
- * コントラクトのgetSegments()を使用（イベントスキャン不要）
+ * tokenId順に1つずつ処理（シンプルで効率的）
  */
 export async function fetchUnprocessedContributions(
   lastProcessedBlock: bigint
 ): Promise<Contribution[]> {
-  // コントラクトから全Segmentを取得
-  const allSegments = await fetchAllSegmentsFromContract();
+  const client = createClient();
 
-  // lastProcessedBlockより後のものをフィルタ
-  const unprocessedSegments = allSegments.filter(
-    (seg) => seg.mintedAt > lastProcessedBlock
-  );
+  // totalSupplyを取得
+  const totalSupply = await client.readContract({
+    address: SEGMENT_NFT_ADDRESS,
+    abi: SEGMENT_NFT_ABI,
+    functionName: 'totalSupply',
+  }) as bigint;
 
-  // 各Segmentに対してcellsEncodedを取得
+  if (totalSupply === 0n) {
+    return [];
+  }
+
   const contributions: Contribution[] = [];
 
-  for (const segment of unprocessedSegments) {
-    const cells = await fetchSegmentCells(segment.tokenId, segment.mintedAt);
+  // tokenId 1から順に処理
+  for (let tokenId = 1n; tokenId <= totalSupply; tokenId++) {
+    const segment = await fetchSegment(tokenId);
+
+    // lastProcessedBlockより後のものだけ処理
+    if (segment.mintedAt <= lastProcessedBlock) {
+      continue;
+    }
+
+    const cells = await fetchSegmentCells(tokenId, segment.mintedAt);
 
     contributions.push({
       tokenId: segment.tokenId,
@@ -217,33 +200,9 @@ export async function fetchNextTokenId(): Promise<bigint> {
  * 全Segmentを取得（genesis〜現在）
  * 初回Epoch生成時に使用
  *
- * コントラクトのgetSegments()を使用（イベントスキャン不要）
+ * tokenId順に1つずつ処理（シンプルで効率的）
  */
 export async function fetchAllContributions(): Promise<Contribution[]> {
-  // コントラクトから全Segmentを取得
-  const allSegments = await fetchAllSegmentsFromContract();
-
-  // 各Segmentに対してcellsEncodedを取得
-  const contributions: Contribution[] = [];
-
-  for (const segment of allSegments) {
-    const cells = await fetchSegmentCells(segment.tokenId, segment.mintedAt);
-
-    contributions.push({
-      tokenId: segment.tokenId,
-      fid: segment.fid,
-      nGenerations: segment.nGenerations,
-      cells,
-      blockNumber: segment.mintedAt,
-    });
-  }
-
-  // tokenId順（古い順）にソート
-  contributions.sort((a, b) => {
-    if (a.tokenId < b.tokenId) return -1;
-    if (a.tokenId > b.tokenId) return 1;
-    return 0;
-  });
-
-  return contributions;
+  // lastProcessedBlock = 0 で全件取得
+  return fetchUnprocessedContributions(0n);
 }
