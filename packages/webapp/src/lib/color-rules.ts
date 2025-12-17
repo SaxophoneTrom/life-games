@@ -64,21 +64,26 @@ export function averageRGB(colorIndices: number[]): [number, number, number] {
 
 /**
  * 誕生時の色を計算
- * 3つの親セルのRGB平均 → 最近接パレット色
+ * 親の中から1つを決定論的に選択（座標ベースではなく、色インデックスの合計でソート後選択）
+ * これにより平均化による中間色への収束を防ぐ
  */
 export function calculateBirthColor(parentColorIndices: number[]): number {
-  if (parentColorIndices.length !== 3) {
-    // 安全策: 3つでない場合は最初の色を返す
-    return parentColorIndices[0] || 0;
+  if (parentColorIndices.length === 0) {
+    return 0;
   }
 
-  const avgRgb = averageRGB(parentColorIndices);
-  return findNearestPaletteIndex(avgRgb);
+  // 決定論的選択: 色インデックスの合計を使って選択
+  // ソートして最初の色を選ぶ（決定論的）
+  const sorted = [...parentColorIndices].sort((a, b) => a - b);
+  const sum = parentColorIndices.reduce((acc, c) => acc + c, 0);
+  const selectedIndex = sum % sorted.length;
+  return sorted[selectedIndex];
 }
 
 /**
  * 生存時の色を計算
- * 自身75% + 隣接平均25% → 最近接パレット色
+ * 自身50% + 隣接平均50% → 最近接パレット色
+ * （隣接色の影響を強めて色の変化を促進）
  */
 export function calculateSurvivalColor(
   selfColorIndex: number,
@@ -89,11 +94,11 @@ export function calculateSurvivalColor(
     ? averageRGB(neighborColorIndices)
     : selfRgb;
 
-  // 75% self + 25% neighbor average
+  // 50% self + 50% neighbor average（隣接色の影響を強める）
   const blendedRgb: [number, number, number] = [
-    Math.round(selfRgb[0] * 0.75 + neighborAvgRgb[0] * 0.25),
-    Math.round(selfRgb[1] * 0.75 + neighborAvgRgb[1] * 0.25),
-    Math.round(selfRgb[2] * 0.75 + neighborAvgRgb[2] * 0.25),
+    Math.round(selfRgb[0] * 0.5 + neighborAvgRgb[0] * 0.5),
+    Math.round(selfRgb[1] * 0.5 + neighborAvgRgb[1] * 0.5),
+    Math.round(selfRgb[2] * 0.5 + neighborAvgRgb[2] * 0.5),
   ];
 
   return findNearestPaletteIndex(blendedRgb);

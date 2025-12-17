@@ -1,6 +1,7 @@
 'use client';
 
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
+import { ConnectButton } from '@/components/ui/ConnectButton';
 
 export function Header() {
   return (
@@ -16,8 +17,11 @@ export function Header() {
           </span>
         </div>
 
-        {/* Language Switcher */}
-        <LanguageSwitcher />
+        {/* Right side: Connect + Language */}
+        <div className="flex items-center gap-2">
+          <ConnectButton />
+          <LanguageSwitcher />
+        </div>
       </div>
     </header>
   );

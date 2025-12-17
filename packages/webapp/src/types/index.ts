@@ -7,7 +7,7 @@ export const BOARD_SIZE = 64;
 export const PALETTE_SIZE = 16;
 
 // セグメント世代数の範囲（コントラクトで変更可能）
-export const MIN_GENERATIONS = 5;
+export const MIN_GENERATIONS = 10; // 新仕様: 10-30
 export const MAX_GENERATIONS = 30;
 
 // 16色パレット（0番は背景色=灰色、1-15はビビッドカラー）
@@ -52,34 +52,36 @@ export interface BoardState {
   colorNibbles: Uint8Array; // 5,000 bytes (10,000 × 4 bits)
 }
 
-// セグメント状態
-export type SegmentStatus = 'pending' | 'revealed';
-
-// セグメント情報
+// セグメント情報（新仕様: 空盤面から始まる独立作品、即確定mint）
 export interface Segment {
   id: number;
   tokenId: number;
-  creator: string; // address
+  minter: string; // address - mint実行者
   fid: number;
-  startGeneration: number;
-  endGeneration: number;
   nGenerations: number;
   injectedCells: Cell[];
-  status: SegmentStatus;
-  mediaUrl?: string;
-  thumbnailUrl?: string;
+  cellsHash: string; // keccak256(cellsEncoded)
+  mintedAt: number; // block number
   createdAt: Date;
 }
 
-// エポック情報
+// エポック情報（新仕様: 共有世界線アーカイブ、256世代ごと）
 export interface Epoch {
   id: number;
   tokenId: number;
-  startGeneration: number;
-  endGeneration: number;
-  finalized: boolean;
-  mediaUrl?: string;
-  contributors: string[]; // addresses
+  absStartGen: number; // 絶対開始世代（1, 257, 513...）
+  absEndGen: number; // 絶対終了世代（256, 512, 768...）
+  startStateRoot: string; // bytes32
+  startStateCID: string; // IPFS CID
+  endStateRoot: string; // bytes32
+  endStateCID: string; // IPFS CID
+  artifactURI: string; // MP4 video URI
+  metadataURI: string; // JSON metadata URI
+  contributorsCID: string; // IPFS CID of contributors list
+  contributorsRoot: string; // Merkle root of contributors
+  startBlock: number; // First block number included
+  endBlock: number; // Last block number included
+  revealed: boolean; // Is epoch revealed/minted
 }
 
 // 購入パラメータ

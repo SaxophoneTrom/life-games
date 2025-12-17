@@ -70,27 +70,36 @@ export function generateGliderBoard(): BoardState {
   return state;
 }
 
-// モックセグメントを生成（決定論的）
+// モックセグメントを生成（決定論的・新仕様: 空盤面起点、即確定mint）
 export function generateMockSegments(count: number): Segment[] {
   const segments: Segment[] = [];
-  let currentGen = 1;
   const rand = seededRandom(12345); // 固定シード
 
   for (let i = 1; i <= count; i++) {
-    const nGen = Math.floor(rand() * 26) + 5; // 5-30
+    const nGen = Math.floor(rand() * 21) + 10; // 10-30（新仕様）
+    const cellCount = Math.floor(nGen / 2); // maxCells = floor(nGen / 2)
+
+    // 決定論的な注入セルを生成
+    const injectedCells = [];
+    for (let j = 0; j < cellCount; j++) {
+      injectedCells.push({
+        x: Math.floor(rand() * BOARD_SIZE),
+        y: Math.floor(rand() * BOARD_SIZE),
+        colorIndex: Math.floor(rand() * 15) + 1, // 1-15
+      });
+    }
+
     segments.push({
       id: i,
       tokenId: i,
-      creator: `0x${i.toString(16).padStart(40, '0')}`, // 決定論的なアドレス
+      minter: `0x${i.toString(16).padStart(40, '0')}`, // 決定論的なアドレス
       fid: 1000 + i,
-      startGeneration: currentGen,
-      endGeneration: currentGen + nGen - 1,
       nGenerations: nGen,
-      injectedCells: [],
-      status: i % 3 === 0 ? 'pending' : 'revealed', // 決定論的なステータス
+      injectedCells,
+      cellsHash: `0x${(i * 12345).toString(16).padStart(64, '0')}`, // ダミーハッシュ
+      mintedAt: 1000000 + i * 100, // ダミーブロック番号
       createdAt: new Date(1702500000000 - i * 3600000), // 固定の基準時刻から計算
     });
-    currentGen += nGen;
   }
 
   return segments.reverse(); // 新しい順
@@ -99,6 +108,11 @@ export function generateMockSegments(count: number): Segment[] {
 // フック版
 export function useMockBoard() {
   return useMemo(() => generateGliderBoard(), []);
+}
+
+// 空盤面を返すフック（新仕様: SegmentNFTは空盤面起点）
+export function useEmptyBoard() {
+  return useMemo(() => createEmptyBoard(), []);
 }
 
 export function useMockSegments(count: number = 10) {

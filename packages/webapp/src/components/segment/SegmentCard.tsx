@@ -1,35 +1,60 @@
 'use client';
 
 import Link from 'next/link';
+import { useRef, useEffect, useMemo } from 'react';
 import { Card } from '@/components/ui/Card';
-import { SegmentStatus } from '@/components/segment/SegmentStatus';
-import type { Segment } from '@/types';
+import type { Segment, BoardState } from '@/types';
+import { createEmptyBoard, injectCells } from '@/lib/life-engine';
+import { renderBoardToSizedCanvas } from '@/lib/gif-renderer';
 
 interface SegmentCardProps {
   segment: Segment;
   showDetails?: boolean;
 }
 
+const THUMBNAIL_SIZE = 100; // サムネイルサイズ
+
 export function SegmentCard({ segment, showDetails = false }: SegmentCardProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // 1フレーム目の状態を計算
+  const firstFrame: BoardState | null = useMemo(() => {
+    if (!segment.injectedCells || segment.injectedCells.length === 0) return null;
+    const emptyBoard = createEmptyBoard();
+    return injectCells(emptyBoard, segment.injectedCells);
+  }, [segment.injectedCells]);
+
+  // サムネイル描画
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !firstFrame) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // ボードを描画
+    const boardCanvas = renderBoardToSizedCanvas(firstFrame, THUMBNAIL_SIZE);
+    ctx.drawImage(boardCanvas, 0, 0);
+  }, [firstFrame]);
+
   return (
     <Link href={`/segment/${segment.id}`}>
       <Card hoverable className="w-[100px] flex-shrink-0">
-        {/* サムネイル */}
-        <div className="aspect-square bg-[#0B0F14] relative">
-          {segment.thumbnailUrl ? (
-            <img
-              src={segment.thumbnailUrl}
-              alt={`Segment #${segment.id}`}
-              className="w-full h-full object-cover"
+        {/* サムネイル - 1フレーム目の静止画 */}
+        <div className="aspect-square bg-[#0B0F14] relative overflow-hidden">
+          {firstFrame ? (
+            <canvas
+              ref={canvasRef}
+              width={THUMBNAIL_SIZE}
+              height={THUMBNAIL_SIZE}
+              className="w-full h-full"
+              style={{ imageRendering: 'pixelated' }}
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center">
               <span className="text-2xl text-white/20">#{segment.id}</span>
             </div>
           )}
-          <div className="absolute top-1 right-1">
-            <SegmentStatus status={segment.status} size="sm" />
-          </div>
         </div>
 
         {/* 情報 */}
@@ -37,7 +62,7 @@ export function SegmentCard({ segment, showDetails = false }: SegmentCardProps) 
           <div className="text-sm font-medium text-white">#{segment.id}</div>
           {showDetails && (
             <div className="text-xs text-white/50 mt-0.5">
-              Gen {segment.startGeneration}-{segment.endGeneration}
+              {segment.nGenerations} gens
             </div>
           )}
         </div>

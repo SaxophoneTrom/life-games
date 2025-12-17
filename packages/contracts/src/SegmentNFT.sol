@@ -5,13 +5,19 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Base64.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /**
  * @title SegmentNFT
- * @dev ERC-721 NFT for Infinite Life segments
- * Each segment represents a sequence of generations in the Game of Life simulation
+ * @dev ERC-721 NFT for Infinite Life segments (Independent Artwork)
+ *
+ * New Architecture (2025-12-15):
+ * - Each segment is an INDEPENDENT artwork starting from empty board (generation 0)
+ * - NO shared board state reference
+ * - Immediate finalization on mint (no pending/finalize pipeline)
+ * - Contribution to shared timeline is tracked via events for later Epoch generation
  */
-contract SegmentNFT is ERC721, Ownable {
+contract SegmentNFT is ERC721, Ownable, ReentrancyGuard {
     using Strings for uint256;
 
     // ===========================================
@@ -22,43 +28,27 @@ contract SegmentNFT is ERC721, Ownable {
     // ===========================================
     // Generation Range (configurable by owner)
     // ===========================================
-    uint8 public minGenerations = 5;
+    uint8 public minGenerations = 10;
     uint8 public maxGenerations = 30;
 
     // ===========================================
-    // Global Board State
+    // Ruleset Hash (immutable, for deterministic verification)
     // ===========================================
-    uint256 public currentGen;           // Latest completed generation number
-    bytes32 public currentStateRoot;     // Current board state hash
-    string public currentStateCID;       // IPFS CID for current state
-    bytes32 public immutable rulesetHash; // Hash of palette + rules (immutable)
+    bytes32 public immutable rulesetHash;
 
     // ===========================================
-    // Segment Structure
+    // Segment Structure (Simplified for Independent Artwork)
     // ===========================================
     struct Segment {
-        address buyer;
+        address minter;           // Original minter address
         uint256 fid;              // Farcaster ID
-        uint256 startGen;
-        uint256 nGenerations;     // 5-30
-        bytes32 startStateRoot;
-        string startStateCID;
-        bytes cellsEncoded;       // Injected cell data (on-chain storage)
+        uint8 nGenerations;       // Number of generations (10-30)
         bytes32 cellsHash;        // keccak256(cellsEncoded)
-        bool finalized;
-        bytes32 endStateRoot;
-        string endStateCID;
-        string metadataURI;       // IPFS metadata URI
+        uint256 mintedAt;         // Block number when minted (for ordering in shared timeline)
     }
 
     mapping(uint256 => Segment) public segments;
     uint256 public nextTokenId;
-
-    // ===========================================
-    // Checkpoints (256 generation boundaries)
-    // ===========================================
-    mapping(uint256 => bytes32) public checkpointRoots;
-    mapping(uint256 => string) public checkpointCIDs;
 
     // ===========================================
     // Fee Configuration
@@ -68,34 +58,33 @@ contract SegmentNFT is ERC721, Ownable {
     uint256 public perCellFee;   // Fee per cell (can be 0)
 
     // ===========================================
-    // Access Control
-    // ===========================================
-    address public finalizer;
-
-    // ===========================================
     // Events
     // ===========================================
-    event SegmentPurchased(
+
+    /**
+     * @dev Emitted when a new segment is minted
+     * @param tokenId The ID of the minted segment
+     * @param minter The address that minted the segment
+     * @param fid Farcaster ID of the minter
+     * @param nGenerations Number of generations in the segment
+     * @param cellsHash Hash of the injected cells data
+     */
+    event SegmentMinted(
         uint256 indexed tokenId,
-        address indexed buyer,
+        address indexed minter,
         uint256 indexed fid,
-        uint256 startGen,
-        uint256 nGenerations,
-        bytes32 startStateRoot,
+        uint8 nGenerations,
         bytes32 cellsHash
     );
 
-    event SegmentFinalized(
+    /**
+     * @dev Emitted with the actual cells data for reconstruction
+     * @param tokenId The ID of the segment
+     * @param cellsEncoded The encoded cells data (3 bytes per cell: x, y, colorIndex)
+     */
+    event SegmentCells(
         uint256 indexed tokenId,
-        bytes32 endStateRoot,
-        string endStateCID,
-        string metadataURI
-    );
-
-    event CheckpointRecorded(
-        uint256 indexed boundaryGen,
-        bytes32 boundaryRoot,
-        string boundaryStateCID
+        bytes cellsEncoded
     );
 
     event FeesUpdated(
@@ -109,34 +98,17 @@ contract SegmentNFT is ERC721, Ownable {
         uint8 maxGenerations
     );
 
-    event FinalizerUpdated(address indexed newFinalizer);
-
-    // ===========================================
-    // Modifiers
-    // ===========================================
-    modifier onlyFinalizer() {
-        require(msg.sender == finalizer, "SegmentNFT: caller is not finalizer");
-        _;
-    }
-
     // ===========================================
     // Constructor
     // ===========================================
     constructor(
         address _owner,
-        address _finalizer,
         bytes32 _rulesetHash,
-        bytes32 _initialStateRoot,
-        string memory _initialStateCID,
         uint256 _baseFee,
         uint256 _perGenFee,
         uint256 _perCellFee
     ) ERC721("Infinite Life Segment", "ILS") Ownable(_owner) {
-        finalizer = _finalizer;
         rulesetHash = _rulesetHash;
-        currentStateRoot = _initialStateRoot;
-        currentStateCID = _initialStateCID;
-        currentGen = 0;
         nextTokenId = 1;
 
         baseFee = _baseFee;
@@ -149,38 +121,41 @@ contract SegmentNFT is ERC721, Ownable {
     // ===========================================
 
     /**
-     * @dev Purchase a segment
-     * @param nGenerations Number of generations (5-30)
+     * @dev Mint a new segment (immediate finalization, no pending state)
+     * @param nGenerations Number of generations (10-30)
      * @param cellsEncoded Encoded cells data (3 bytes per cell: x, y, colorIndex)
      * @param fid Farcaster ID
      * @return tokenId The ID of the minted segment NFT
+     *
+     * Note: The segment starts from an EMPTY board (generation 0), not from shared state.
+     * This makes each segment an independent artwork that can be verified deterministically.
      */
-    function buySegment(
+    function mintSegment(
         uint8 nGenerations,
         bytes calldata cellsEncoded,
         uint256 fid
-    ) external payable returns (uint256 tokenId) {
+    ) external payable nonReentrant returns (uint256 tokenId) {
+        // Validate generation count
         require(
             nGenerations >= minGenerations && nGenerations <= maxGenerations,
             "SegmentNFT: invalid generation count"
         );
 
-        // Validate cell count (max = nGenerations * 9)
-        uint256 cellCount = cellsEncoded.length / 3;
+        // Validate cell encoding (3 bytes per cell)
         require(
             cellsEncoded.length % 3 == 0,
             "SegmentNFT: invalid cells encoding"
         );
-        require(
-            cellCount <= uint256(nGenerations) * 9,
-            "SegmentNFT: too many cells"
-        );
 
-        // Validate cell coordinates
+        // Cell count is unlimited (no maxCells restriction)
+        uint256 cellCount = cellsEncoded.length / 3;
+
+        // Validate each cell (duplicate check removed for gas efficiency - handled client-side)
         for (uint256 i = 0; i < cellCount; i++) {
             uint8 x = uint8(cellsEncoded[i * 3]);
             uint8 y = uint8(cellsEncoded[i * 3 + 1]);
             uint8 colorIndex = uint8(cellsEncoded[i * 3 + 2]);
+
             require(x < BOARD_SIZE && y < BOARD_SIZE, "SegmentNFT: cell out of bounds");
             require(colorIndex < 16, "SegmentNFT: invalid color index");
         }
@@ -189,93 +164,38 @@ contract SegmentNFT is ERC721, Ownable {
         uint256 fee = calculateFee(nGenerations, cellCount);
         require(msg.value >= fee, "SegmentNFT: insufficient payment");
 
-        // Create segment
+        // Create segment (immediately finalized)
         tokenId = nextTokenId++;
-        uint256 startGen = currentGen + 1;
         bytes32 cellsHash = keccak256(cellsEncoded);
 
         segments[tokenId] = Segment({
-            buyer: msg.sender,
+            minter: msg.sender,
             fid: fid,
-            startGen: startGen,
             nGenerations: nGenerations,
-            startStateRoot: currentStateRoot,
-            startStateCID: currentStateCID,
-            cellsEncoded: cellsEncoded,
             cellsHash: cellsHash,
-            finalized: false,
-            endStateRoot: bytes32(0),
-            endStateCID: "",
-            metadataURI: ""
+            mintedAt: block.number
         });
 
         // Mint NFT
         _mint(msg.sender, tokenId);
 
-        emit SegmentPurchased(
+        // Emit events for indexing and reconstruction
+        emit SegmentMinted(
             tokenId,
             msg.sender,
             fid,
-            startGen,
             nGenerations,
-            currentStateRoot,
             cellsHash
         );
 
-        // Refund excess payment
+        // Emit cells data separately (allows reconstruction from events)
+        emit SegmentCells(tokenId, cellsEncoded);
+
+        // Refund excess payment using call
         if (msg.value > fee) {
-            payable(msg.sender).transfer(msg.value - fee);
+            (bool success, ) = payable(msg.sender).call{value: msg.value - fee}("");
+            require(success, "SegmentNFT: refund failed");
         }
-    }
-
-    /**
-     * @dev Finalize a segment (finalizer only)
-     * @param tokenId The segment token ID
-     * @param endStateRoot The final state root after simulation
-     * @param endStateCID IPFS CID of the end state
-     * @param metadataURI IPFS URI for the metadata JSON
-     */
-    function finalizeSegment(
-        uint256 tokenId,
-        bytes32 endStateRoot,
-        string calldata endStateCID,
-        string calldata metadataURI
-    ) external onlyFinalizer {
-        Segment storage seg = segments[tokenId];
-        require(seg.buyer != address(0), "SegmentNFT: segment does not exist");
-        require(!seg.finalized, "SegmentNFT: already finalized");
-
-        seg.finalized = true;
-        seg.endStateRoot = endStateRoot;
-        seg.endStateCID = endStateCID;
-        seg.metadataURI = metadataURI;
-
-        // Update global state
-        currentGen = seg.startGen + seg.nGenerations - 1;
-        currentStateRoot = endStateRoot;
-        currentStateCID = endStateCID;
-
-        emit SegmentFinalized(tokenId, endStateRoot, endStateCID, metadataURI);
-    }
-
-    /**
-     * @dev Record a checkpoint at 256 generation boundaries (finalizer only)
-     * @param boundaryGen The boundary generation number (256, 512, 768...)
-     * @param boundaryRoot The state root at the boundary
-     * @param boundaryStateCID IPFS CID of the state at the boundary
-     */
-    function recordCheckpoint(
-        uint256 boundaryGen,
-        bytes32 boundaryRoot,
-        string calldata boundaryStateCID
-    ) external onlyFinalizer {
-        require(boundaryGen % 256 == 0, "SegmentNFT: not a 256 boundary");
-        require(checkpointRoots[boundaryGen] == bytes32(0), "SegmentNFT: checkpoint exists");
-
-        checkpointRoots[boundaryGen] = boundaryRoot;
-        checkpointCIDs[boundaryGen] = boundaryStateCID;
-
-        emit CheckpointRecorded(boundaryGen, boundaryRoot, boundaryStateCID);
     }
 
     // ===========================================
@@ -313,22 +233,14 @@ contract SegmentNFT is ERC721, Ownable {
     }
 
     /**
-     * @dev Update finalizer address (owner only)
-     */
-    function setFinalizer(address _finalizer) external onlyOwner {
-        require(_finalizer != address(0), "SegmentNFT: invalid finalizer");
-        finalizer = _finalizer;
-
-        emit FinalizerUpdated(_finalizer);
-    }
-
-    /**
      * @dev Withdraw accumulated fees (owner only)
      */
     function withdraw() external onlyOwner {
         uint256 balance = address(this).balance;
         require(balance > 0, "SegmentNFT: no balance");
-        payable(owner()).transfer(balance);
+
+        (bool success, ) = owner().call{value: balance}("");
+        require(success, "SegmentNFT: withdrawal failed");
     }
 
     // ===========================================
@@ -356,51 +268,132 @@ contract SegmentNFT is ERC721, Ownable {
     }
 
     /**
-     * @dev Get cells data for a segment
+     * @dev Get total number of minted segments
      */
-    function getSegmentCells(uint256 tokenId) external view returns (bytes memory) {
-        return segments[tokenId].cellsEncoded;
+    function totalSupply() external view returns (uint256) {
+        return nextTokenId - 1;
     }
 
     /**
-     * @dev Returns token URI (hybrid: pending=on-chain, revealed=IPFS)
+     * @dev Get multiple segments with pagination (newest first)
+     * @param offset Number of segments to skip (0 = start from newest)
+     * @param limit Maximum number of segments to return
+     * @return tokenIds Array of token IDs
+     * @return segmentList Array of Segment structs
+     * @return total Total number of segments
+     */
+    function getSegments(
+        uint256 offset,
+        uint256 limit
+    ) external view returns (
+        uint256[] memory tokenIds,
+        Segment[] memory segmentList,
+        uint256 total
+    ) {
+        total = nextTokenId - 1;
+
+        if (total == 0 || offset >= total) {
+            return (new uint256[](0), new Segment[](0), total);
+        }
+
+        // Calculate actual count to return
+        uint256 remaining = total - offset;
+        uint256 count = remaining < limit ? remaining : limit;
+
+        tokenIds = new uint256[](count);
+        segmentList = new Segment[](count);
+
+        // Return newest first (descending order by tokenId)
+        for (uint256 i = 0; i < count; i++) {
+            uint256 tokenId = total - offset - i;
+            tokenIds[i] = tokenId;
+            segmentList[i] = segments[tokenId];
+        }
+
+        return (tokenIds, segmentList, total);
+    }
+
+    /**
+     * @dev Get segments owned by a specific address
+     * @param owner Address to query
+     * @param offset Number of segments to skip
+     * @param limit Maximum number of segments to return
+     * @return tokenIds Array of token IDs owned by the address
+     * @return segmentList Array of Segment structs
+     * @return total Total number of segments owned by the address
+     *
+     * Note: This is O(n) where n is totalSupply. For large collections,
+     * consider using off-chain indexing or events.
+     */
+    function getSegmentsByOwner(
+        address owner,
+        uint256 offset,
+        uint256 limit
+    ) external view returns (
+        uint256[] memory tokenIds,
+        Segment[] memory segmentList,
+        uint256 total
+    ) {
+        uint256 supply = nextTokenId - 1;
+
+        // First pass: count owned tokens
+        uint256 ownedCount = 0;
+        for (uint256 i = 1; i <= supply; i++) {
+            if (_ownerOf(i) == owner) {
+                ownedCount++;
+            }
+        }
+
+        total = ownedCount;
+
+        if (ownedCount == 0 || offset >= ownedCount) {
+            return (new uint256[](0), new Segment[](0), total);
+        }
+
+        // Calculate actual count to return
+        uint256 remaining = ownedCount - offset;
+        uint256 count = remaining < limit ? remaining : limit;
+
+        tokenIds = new uint256[](count);
+        segmentList = new Segment[](count);
+
+        // Second pass: collect owned tokens (newest first)
+        uint256 found = 0;
+        uint256 added = 0;
+        for (uint256 i = supply; i >= 1 && added < count; i--) {
+            if (_ownerOf(i) == owner) {
+                if (found >= offset) {
+                    tokenIds[added] = i;
+                    segmentList[added] = segments[i];
+                    added++;
+                }
+                found++;
+            }
+        }
+
+        return (tokenIds, segmentList, total);
+    }
+
+    /**
+     * @dev Returns token URI (on-chain metadata, immediately available)
+     *
+     * Since segments are independent artworks starting from empty board,
+     * the metadata is fully determined at mint time.
      */
     function tokenURI(uint256 tokenId) public view override returns (string memory) {
         require(_ownerOf(tokenId) != address(0), "SegmentNFT: token does not exist");
 
         Segment memory seg = segments[tokenId];
 
-        if (seg.finalized) {
-            // Revealed: return IPFS metadata
-            return seg.metadataURI;
-        } else {
-            // Pending: build on-chain metadata
-            return _buildPendingMetadata(tokenId, seg);
-        }
-    }
-
-    // ===========================================
-    // Internal Functions
-    // ===========================================
-
-    /**
-     * @dev Build on-chain metadata for pending segments
-     */
-    function _buildPendingMetadata(
-        uint256 tokenId,
-        Segment memory seg
-    ) internal pure returns (string memory) {
-        uint256 endGen = seg.startGen + seg.nGenerations - 1;
-
         string memory json = string(abi.encodePacked(
             '{"name":"Infinite Life Segment #', tokenId.toString(),
-            '","description":"Pending segment - Generations ', seg.startGen.toString(),
-            ' to ', endGen.toString(),
+            '","description":"An independent Game of Life artwork. ',
+            'Starting from empty board, ', uint256(seg.nGenerations).toString(),
+            ' generations of evolution.',
             '","attributes":[',
-            '{"trait_type":"Status","value":"pending"},',
-            '{"trait_type":"Start Generation","value":', seg.startGen.toString(), '},',
-            '{"trait_type":"Generations","value":', seg.nGenerations.toString(), '},',
-            '{"trait_type":"Farcaster FID","value":', seg.fid.toString(), '}',
+            '{"trait_type":"Generations","value":', uint256(seg.nGenerations).toString(), '},',
+            '{"trait_type":"Farcaster FID","value":', seg.fid.toString(), '},',
+            '{"trait_type":"Minted At Block","value":', seg.mintedAt.toString(), '}',
             ']}'
         ));
 

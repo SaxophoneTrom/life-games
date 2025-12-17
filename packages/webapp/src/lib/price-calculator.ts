@@ -39,11 +39,3 @@ export function formatEth(wei: bigint, decimals: number = 6): string {
 export function formatPrice(wei: bigint): string {
   return `${formatEth(wei)} ETH`;
 }
-
-/**
- * 最大注入セル数を計算
- * max = nGenerations * 9 = 世代数の9倍
- */
-export function calculateMaxCells(nGenerations: number): number {
-  return nGenerations * 9;
-}

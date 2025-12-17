@@ -3,18 +3,18 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
 import "../src/SegmentNFT.sol";
-import "../src/EpochNFT.sol";
+import "../src/EpochArchiveNFT.sol";
 
 /**
  * @title Deploy
- * @dev Deployment script for Infinite Life contracts
+ * @dev Deployment script for Infinite Life contracts (New Architecture)
  *
  * Usage:
  *   forge script script/Deploy.s.sol:Deploy --rpc-url $BASE_SEPOLIA_RPC_URL --broadcast --verify
  *
  * Environment variables required:
  *   - DEPLOYER_PRIVATE_KEY: Private key for deployment
- *   - FINALIZER_ADDRESS: Address authorized to finalize segments/epochs
+ *   - EPOCH_MINTER_ADDRESS: Address authorized to mint epochs (GitHub Actions bot)
  *   - BASE_SEPOLIA_RPC_URL: RPC URL for Base Sepolia
  *   - BASESCAN_API_KEY: API key for contract verification
  */
@@ -26,15 +26,7 @@ contract Deploy is Script {
     uint256 public constant PER_GEN_FEE = 0.000005 ether;  // Fee per generation
     uint256 public constant PER_CELL_FEE = 0;              // Free cell placement
 
-    uint256 public constant EPOCH_MINT_PRICE = 0.0001 ether; // Price to mint epoch NFT
-
-    // ===========================================
-    // Initial State (empty board)
-    // ===========================================
-    // For a 64x64 board with all cells dead:
-    // StateV1: 512 bytes (aliveBitset) + 2048 bytes (colorNibbles) = 2560 bytes of zeros
-    bytes32 public constant INITIAL_STATE_ROOT = keccak256(abi.encodePacked(bytes32(0))); // Placeholder
-    string public constant INITIAL_STATE_CID = ""; // Will be set after IPFS upload
+    uint256 public constant EPOCH_MINT_PRICE = 0.0001 ether; // Price to collect epoch NFT
 
     // Ruleset hash (Conway's Game of Life with 16 color palette)
     bytes32 public constant RULESET_HASH = keccak256("Conway's Game of Life - 16 colors - v1");
@@ -42,23 +34,20 @@ contract Deploy is Script {
     function run() external {
         // Load environment variables
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
-        address finalizer = vm.envAddress("FINALIZER_ADDRESS");
+        address epochMinter = vm.envAddress("EPOCH_MINTER_ADDRESS");
 
         vm.startBroadcast(deployerPrivateKey);
 
         address deployer = vm.addr(deployerPrivateKey);
 
-        console.log("Deploying contracts...");
+        console.log("Deploying contracts (New Architecture)...");
         console.log("Deployer:", deployer);
-        console.log("Finalizer:", finalizer);
+        console.log("Epoch Minter:", epochMinter);
 
         // Deploy SegmentNFT
         SegmentNFT segmentNFT = new SegmentNFT(
             deployer,           // owner
-            finalizer,          // finalizer
             RULESET_HASH,       // rulesetHash
-            INITIAL_STATE_ROOT, // initialStateRoot
-            INITIAL_STATE_CID,  // initialStateCID
             BASE_FEE,           // baseFee
             PER_GEN_FEE,        // perGenFee
             PER_CELL_FEE        // perCellFee (0 = free cell placement)
@@ -66,15 +55,15 @@ contract Deploy is Script {
 
         console.log("SegmentNFT deployed at:", address(segmentNFT));
 
-        // Deploy EpochNFT
-        EpochNFT epochNFT = new EpochNFT(
+        // Deploy EpochArchiveNFT
+        EpochArchiveNFT epochNFT = new EpochArchiveNFT(
             deployer,            // owner
-            finalizer,           // finalizer
+            epochMinter,         // epochMinter (GitHub Actions bot)
             address(segmentNFT), // segmentNFT
             EPOCH_MINT_PRICE     // mintPrice
         );
 
-        console.log("EpochNFT deployed at:", address(epochNFT));
+        console.log("EpochArchiveNFT deployed at:", address(epochNFT));
 
         vm.stopBroadcast();
 
@@ -82,13 +71,16 @@ contract Deploy is Script {
         console.log("");
         console.log("=== Deployment Summary ===");
         console.log("SegmentNFT:", address(segmentNFT));
-        console.log("EpochNFT:", address(epochNFT));
+        console.log("EpochArchiveNFT:", address(epochNFT));
         console.log("");
         console.log("Fee Configuration:");
         console.log("  Base Fee:", BASE_FEE);
         console.log("  Per Gen Fee:", PER_GEN_FEE);
         console.log("  Per Cell Fee:", PER_CELL_FEE);
         console.log("  Epoch Mint Price:", EPOCH_MINT_PRICE);
+        console.log("");
+        console.log("Generation Range: 10-30");
+        console.log("Max Cells: floor(nGenerations / 2)");
     }
 }
 
@@ -99,7 +91,7 @@ contract Deploy is Script {
 contract DeployTestnet is Script {
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
-        address finalizer = vm.envAddress("FINALIZER_ADDRESS");
+        address epochMinter = vm.envAddress("EPOCH_MINTER_ADDRESS");
 
         vm.startBroadcast(deployerPrivateKey);
 
@@ -108,18 +100,15 @@ contract DeployTestnet is Script {
         // Deploy with minimal fees for testing
         SegmentNFT segmentNFT = new SegmentNFT(
             deployer,
-            finalizer,
             keccak256("test-ruleset"),
-            keccak256("initial"),
-            "",
             0.00001 ether, // Lower base fee for testing
             0.000001 ether, // Lower per-gen fee
             0               // Free cells
         );
 
-        EpochNFT epochNFT = new EpochNFT(
+        EpochArchiveNFT epochNFT = new EpochArchiveNFT(
             deployer,
-            finalizer,
+            epochMinter,
             address(segmentNFT),
             0.00001 ether // Lower epoch mint price
         );
@@ -128,6 +117,6 @@ contract DeployTestnet is Script {
 
         console.log("=== Testnet Deployment ===");
         console.log("SegmentNFT:", address(segmentNFT));
-        console.log("EpochNFT:", address(epochNFT));
+        console.log("EpochArchiveNFT:", address(epochNFT));
     }
 }

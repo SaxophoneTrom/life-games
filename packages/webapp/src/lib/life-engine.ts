@@ -125,7 +125,9 @@ function getNeighbors(x: number, y: number): { x: number; y: number }[] {
 
 /**
  * 1世代進める（決定論的）
- * ルール: Birth: 3, Survival: 2-3
+ * ルール: HighLife (B36/S23)
+ * - Birth: 3 or 6 neighbors
+ * - Survival: 2 or 3 neighbors
  */
 export function stepGeneration(state: BoardState): BoardState {
   const newState = createEmptyBoard();
@@ -150,7 +152,7 @@ export function stepGeneration(state: BoardState): BoardState {
       const currentlyAlive = isAlive(state, x, y);
 
       if (currentlyAlive) {
-        // Survival: 2-3 neighbors
+        // Survival: 2 or 3 neighbors
         if (neighborCount === 2 || neighborCount === 3) {
           const currentColor = getColor(state, x, y);
           const neighborColors = aliveNeighbors.map((n) => n.colorIndex);
@@ -159,8 +161,8 @@ export function stepGeneration(state: BoardState): BoardState {
         }
         // else: 死亡（残光なし）
       } else {
-        // Birth: exactly 3 neighbors
-        if (neighborCount === 3) {
+        // Birth: 3 or 6 neighbors (HighLife)
+        if (neighborCount === 3 || neighborCount === 6) {
           const parentColors = aliveNeighbors.map((n) => n.colorIndex);
           const newColor = calculateBirthColor(parentColors);
           setCell(newState, x, y, true, newColor);

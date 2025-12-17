@@ -10,7 +10,9 @@ import {
   injectCells,
   runGenerations,
   countAliveCells,
+  stepGeneration,
 } from '@/lib/life-engine';
+import { StampTemplate, applyStamp } from '@/lib/stamps';
 
 type Mode = 'edit' | 'play';
 type PlaySpeed = 1 | 2 | 4;
@@ -23,26 +25,32 @@ interface SegmentEditorProps {
   injectedCells: Cell[];
   onCellsChange: (cells: Cell[]) => void;
   selectedColorIndex: number;
-  maxCells: number;
   nGenerations: number;
   cellSize?: number;
   className?: string;
   enableZoom?: boolean;
+  selectedStamp?: StampTemplate | null;
+  onWatchModeChange?: (isWatchMode: boolean) => void;
 }
 
 /**
  * 統合セグメントエディタ - 編集とシミュレーション再生を1つのコンポーネントで
+ *
+ * 新仕様（2025-12-15〜）:
+ * - baseStateは空盤面を渡す（SegmentNFTは空盤面起点の独立作品）
+ * - 共有盤面の参照は不要
  */
 export const SegmentEditor = memo(function SegmentEditor({
   baseState,
   injectedCells,
   onCellsChange,
   selectedColorIndex,
-  maxCells,
   nGenerations,
   cellSize = 4,
   className = '',
   enableZoom = true,
+  selectedStamp = null,
+  onWatchModeChange,
 }: SegmentEditorProps) {
   // モード管理
   const [mode, setMode] = useState<Mode>('edit');
@@ -53,7 +61,11 @@ export const SegmentEditor = memo(function SegmentEditor({
   const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState<PlaySpeed>(1);
   const [isLooping, setIsLooping] = useState(false); // 無限ループ再生
+  const [isWatchMode, setIsWatchMode] = useState(false); // 鑑賞モード（無限再生）
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 鑑賞モード用: 現在のボード状態を保持（リアルタイム更新用）
+  const watchStateRef = useRef<BoardState | null>(null);
 
   // ズーム・パン関連
   const [scale, setScale] = useState(1);
@@ -81,14 +93,22 @@ export const SegmentEditor = memo(function SegmentEditor({
 
   const canvasSize = BOARD_SIZE * cellSize;
 
+  // 鑑賞モード用の現在状態（リアルタイム更新）
+  const [watchState, setWatchState] = useState<BoardState | null>(null);
+  const [watchGeneration, setWatchGeneration] = useState(0);
+
   // 現在表示するボード状態
   const displayState = useMemo(() => {
+    // 鑑賞モード: watchStateを使用
+    if (isWatchMode && watchState) {
+      return watchState;
+    }
     if (mode === 'play' && history.length > 0) {
       return history[currentGeneration] || history[0];
     }
     // 編集モード: ベース状態 + 注入セル
     return injectCells(baseState, injectedCells);
-  }, [mode, history, currentGeneration, baseState, injectedCells]);
+  }, [mode, history, currentGeneration, baseState, injectedCells, isWatchMode, watchState]);
 
   const aliveCells = countAliveCells(displayState);
   const canSimulate = injectedCells.length > 0 && mode === 'edit';
@@ -120,19 +140,10 @@ export const SegmentEditor = memo(function SegmentEditor({
           }
         }
       }
-      // 注入セル（強調）
+      // 注入セル
       for (const cell of injectedCells) {
         ctx.fillStyle = PALETTE[cell.colorIndex];
         ctx.fillRect(cell.x * cellSize, cell.y * cellSize, cellSize, cellSize);
-        // 白枠
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(
-          cell.x * cellSize + 0.5,
-          cell.y * cellSize + 0.5,
-          cellSize - 1,
-          cellSize - 1
-        );
       }
     } else {
       // 再生モード: displayState（シミュレーション結果）のみを描画
@@ -157,12 +168,24 @@ export const SegmentEditor = memo(function SegmentEditor({
     if (!canSimulate) return;
 
     const withInjected = injectCells(baseState, injectedCells);
-    const states = runGenerations(withInjected, nGenerations);
-    setHistory(states);
-    setCurrentGeneration(0);
+
+    if (isWatchMode) {
+      // 鑑賞モード: 履歴を使わず、リアルタイム計算で開始
+      watchStateRef.current = withInjected;
+      setWatchState(withInjected);
+      setWatchGeneration(0);
+      setHistory([]); // 履歴は空
+      setCurrentGeneration(0);
+    } else {
+      // 通常モード: 履歴を事前計算
+      const states = runGenerations(withInjected, nGenerations);
+      setHistory(states);
+      setCurrentGeneration(0);
+    }
+
     setMode('play');
     setIsPlaying(true);
-  }, [canSimulate, baseState, injectedCells, nGenerations]);
+  }, [canSimulate, baseState, injectedCells, nGenerations, isWatchMode]);
 
   const handleReset = useCallback(() => {
     setMode('edit');
@@ -210,23 +233,34 @@ export const SegmentEditor = memo(function SegmentEditor({
     });
   }, []);
 
-  // 再生ループ
+  // 再生ループ（通常モード・鑑賞モード両対応）
   useEffect(() => {
     if (isPlaying && mode === 'play') {
       intervalRef.current = setInterval(() => {
-        setCurrentGeneration((prev) => {
-          if (prev >= history.length - 1) {
-            if (isLooping) {
-              // ループ再生: 先頭に戻る
-              return 0;
-            } else {
-              // 通常再生: 停止
-              setIsPlaying(false);
-              return prev;
-            }
+        if (isWatchMode) {
+          // 鑑賞モード: 常にリアルタイム計算で次世代へ
+          if (watchStateRef.current) {
+            const nextState = stepGeneration(watchStateRef.current);
+            watchStateRef.current = nextState;
+            setWatchState(nextState);
+            setWatchGeneration((g) => g + 1);
           }
-          return prev + 1;
-        });
+        } else {
+          // 通常モード: 履歴ベースで再生
+          setCurrentGeneration((prev) => {
+            if (prev >= history.length - 1) {
+              if (isLooping) {
+                // ループ再生: 先頭に戻る
+                return 0;
+              } else {
+                // 通常再生: 停止
+                setIsPlaying(false);
+                return prev;
+              }
+            }
+            return prev + 1;
+          });
+        }
       }, intervalMs);
     } else {
       if (intervalRef.current) {
@@ -240,7 +274,28 @@ export const SegmentEditor = memo(function SegmentEditor({
         clearInterval(intervalRef.current);
       }
     };
-  }, [isPlaying, mode, intervalMs, history.length, isLooping]);
+  }, [isPlaying, mode, intervalMs, history.length, isLooping, isWatchMode]);
+
+  // 鑑賞モードON/OFF時の初期化（自動再生はしない）
+  useEffect(() => {
+    if (isWatchMode) {
+      // 鑑賞モードON: watchState用の初期状態を設定（自動再生はしない）
+      const initialState = injectCells(baseState, injectedCells);
+      setWatchState(initialState);
+      setWatchGeneration(0);
+      watchStateRef.current = initialState;
+    } else {
+      // 鑑賞モードOFF: watchState関連のみリセット
+      setWatchState(null);
+      setWatchGeneration(0);
+      watchStateRef.current = null;
+    }
+  }, [isWatchMode, baseState, injectedCells]);
+
+  // 鑑賞モード変更時に親に通知
+  useEffect(() => {
+    onWatchModeChange?.(isWatchMode);
+  }, [isWatchMode, onWatchModeChange]);
 
   // ========== 編集機能 ==========
   // タッチイベント処理済みフラグ（タッチとクリックの二重発火防止）
@@ -293,15 +348,15 @@ export const SegmentEditor = memo(function SegmentEditor({
           const newCells = [...injectedCells];
           newCells.splice(existingIndex, 1);
           onCellsChange(newCells);
-        } else if (injectedCells.length < maxCells && !isAlive(baseState, x, y)) {
-          // 追加
+        } else if (!isAlive(baseState, x, y)) {
+          // 追加（制限なし）
           const newCells = [...injectedCells, { x, y, colorIndex: selectedColorIndex }];
           onCellsChange(newCells);
         }
       } else if (dragPaintMode !== null) {
         visitedCellsRef.current.add(cellKey);
 
-        if (dragPaintMode && !cellExists && injectedCells.length < maxCells && !isAlive(baseState, x, y)) {
+        if (dragPaintMode && !cellExists && !isAlive(baseState, x, y)) {
           // 追加モード
           const newCells = [...injectedCells, { x, y, colorIndex: selectedColorIndex }];
           onCellsChange(newCells);
@@ -313,7 +368,7 @@ export const SegmentEditor = memo(function SegmentEditor({
         }
       }
     },
-    [mode, injectedCells, onCellsChange, selectedColorIndex, maxCells, baseState, dragPaintMode]
+    [mode, injectedCells, onCellsChange, selectedColorIndex, baseState, dragPaintMode]
   );
 
   const handleCanvasClick = useCallback(
@@ -347,6 +402,29 @@ export const SegmentEditor = memo(function SegmentEditor({
         return;
       }
 
+      // スタンプモード
+      if (selectedStamp) {
+        // スタンプを適用（クリック位置を中心として配置）
+        const offsetX = Math.floor(selectedStamp.width / 2);
+        const offsetY = Math.floor(selectedStamp.height / 2);
+        const stampCells = applyStamp(selectedStamp, cellX - offsetX, cellY - offsetY, selectedColorIndex);
+
+        // ボード範囲内かつbaseStateで生きていないセルのみ追加
+        const validStampCells = stampCells.filter(
+          (c) => c.x >= 0 && c.x < BOARD_SIZE && c.y >= 0 && c.y < BOARD_SIZE && !isAlive(baseState, c.x, c.y)
+        );
+
+        // 既存のセルと重複しないセルのみ追加
+        const existingSet = new Set(injectedCells.map((c) => `${c.x}-${c.y}`));
+        const newStampCells = validStampCells.filter((c) => !existingSet.has(`${c.x}-${c.y}`));
+
+        if (newStampCells.length > 0) {
+          onCellsChange([...injectedCells, ...newStampCells]);
+        }
+        return;
+      }
+
+      // 通常モード（単一セル配置/削除）
       // 既に注入されているセルか確認
       const existingIndex = injectedCells.findIndex(
         (c) => c.x === cellX && c.y === cellY
@@ -358,10 +436,7 @@ export const SegmentEditor = memo(function SegmentEditor({
         newCells.splice(existingIndex, 1);
         onCellsChange(newCells);
       } else {
-        // 追加（上限チェック）
-        if (injectedCells.length >= maxCells) {
-          return;
-        }
+        // 追加（制限なし）
         // ベース状態で既に生きているセルには配置不可
         if (isAlive(baseState, cellX, cellY)) {
           return;
@@ -373,7 +448,7 @@ export const SegmentEditor = memo(function SegmentEditor({
         onCellsChange(newCells);
       }
     },
-    [mode, baseState, injectedCells, onCellsChange, selectedColorIndex, maxCells, cellSize, canvasSize, isDragMode]
+    [mode, baseState, injectedCells, onCellsChange, selectedColorIndex, cellSize, canvasSize, isDragMode, selectedStamp]
   );
 
   const handleClear = useCallback(() => {
@@ -493,20 +568,39 @@ export const SegmentEditor = memo(function SegmentEditor({
 
         const cell = getCellFromPosition(touch.clientX, touch.clientY);
         if (cell) {
-          const existingIndex = injectedCells.findIndex(
-            (c) => c.x === cell.x && c.y === cell.y
-          );
+          // スタンプモード
+          if (selectedStamp) {
+            const offsetX = Math.floor(selectedStamp.width / 2);
+            const offsetY = Math.floor(selectedStamp.height / 2);
+            const stampCells = applyStamp(selectedStamp, cell.x - offsetX, cell.y - offsetY, selectedColorIndex);
 
-          if (existingIndex !== -1) {
-            const newCells = [...injectedCells];
-            newCells.splice(existingIndex, 1);
-            onCellsChange(newCells);
-          } else if (injectedCells.length < maxCells && !isAlive(baseState, cell.x, cell.y)) {
-            const newCells = [
-              ...injectedCells,
-              { x: cell.x, y: cell.y, colorIndex: selectedColorIndex },
-            ];
-            onCellsChange(newCells);
+            const validStampCells = stampCells.filter(
+              (c) => c.x >= 0 && c.x < BOARD_SIZE && c.y >= 0 && c.y < BOARD_SIZE && !isAlive(baseState, c.x, c.y)
+            );
+
+            const existingSet = new Set(injectedCells.map((c) => `${c.x}-${c.y}`));
+            const newStampCells = validStampCells.filter((c) => !existingSet.has(`${c.x}-${c.y}`));
+
+            if (newStampCells.length > 0) {
+              onCellsChange([...injectedCells, ...newStampCells]);
+            }
+          } else {
+            // 通常モード
+            const existingIndex = injectedCells.findIndex(
+              (c) => c.x === cell.x && c.y === cell.y
+            );
+
+            if (existingIndex !== -1) {
+              const newCells = [...injectedCells];
+              newCells.splice(existingIndex, 1);
+              onCellsChange(newCells);
+            } else if (!isAlive(baseState, cell.x, cell.y)) {
+              const newCells = [
+                ...injectedCells,
+                { x: cell.x, y: cell.y, colorIndex: selectedColorIndex },
+              ];
+              onCellsChange(newCells);
+            }
           }
         }
       }
@@ -519,7 +613,7 @@ export const SegmentEditor = memo(function SegmentEditor({
     touchStartRef.current = null;
     lastTouchRef.current = null;
     lastDistanceRef.current = null;
-  }, [mode, isDragMode, isPanning, injectedCells, maxCells, baseState, selectedColorIndex, onCellsChange, getCellFromPosition]);
+  }, [mode, isDragMode, isPanning, injectedCells, baseState, selectedColorIndex, onCellsChange, getCellFromPosition, selectedStamp]);
 
   // マウスホイールズーム（ネイティブイベントで登録してページスクロールを防止）
   useEffect(() => {
@@ -574,8 +668,8 @@ export const SegmentEditor = memo(function SegmentEditor({
           const newCells = [...currentCells];
           newCells.splice(existingIndex, 1);
           onCellsChange(newCells);
-        } else if (currentCells.length < maxCells && !isAlive(baseState, cell.x, cell.y)) {
-          // 追加モード
+        } else if (!isAlive(baseState, cell.x, cell.y)) {
+          // 追加モード（制限なし）
           dragPaintModeRef.current = true;
           setDragPaintMode(true);
           const newCells = [...currentCells, { x: cell.x, y: cell.y, colorIndex: selectedColorIndex }];
@@ -603,7 +697,7 @@ export const SegmentEditor = memo(function SegmentEditor({
         );
         const cellExists = existingIndex !== -1;
 
-        if (dragPaintModeRef.current && !cellExists && currentCells.length < maxCells && !isAlive(baseState, cell.x, cell.y)) {
+        if (dragPaintModeRef.current && !cellExists && !isAlive(baseState, cell.x, cell.y)) {
           // 追加モード
           const newCells = [...currentCells, { x: cell.x, y: cell.y, colorIndex: selectedColorIndex }];
           onCellsChange(newCells);
@@ -634,7 +728,7 @@ export const SegmentEditor = memo(function SegmentEditor({
       canvas.removeEventListener('touchmove', handleDragTouchMove);
       canvas.removeEventListener('touchend', handleDragTouchEnd);
     };
-  }, [mode, isDragMode, getCellFromPosition, maxCells, baseState, selectedColorIndex, onCellsChange]);
+  }, [mode, isDragMode, getCellFromPosition, baseState, selectedColorIndex, onCellsChange]);
 
   // ダブルクリック/ダブルタップでリセット
   const handleDoubleClick = useCallback(() => {
@@ -644,7 +738,7 @@ export const SegmentEditor = memo(function SegmentEditor({
   }, [enableZoom]);
 
   // ========== レンダリング ==========
-  const cellCountValid = injectedCells.length > 0 && injectedCells.length <= maxCells;
+  const cellCountValid = injectedCells.length > 0;
 
   return (
     <div className={`flex flex-col gap-3 ${className}`}>
@@ -698,16 +792,32 @@ export const SegmentEditor = memo(function SegmentEditor({
           <span className="text-white/60">
             Gen:{' '}
             <span className="font-mono font-medium text-white">
-              {mode === 'play' ? currentGeneration : 0}
+              {isWatchMode ? watchGeneration : mode === 'play' ? currentGeneration : 0}
             </span>
-            <span className="text-white/40">/{nGenerations}</span>
+            <span className="text-white/40">/{isWatchMode ? '∞' : nGenerations}</span>
           </span>
           <span className="text-white/60">
             Alive:{' '}
             <span className="font-mono font-medium text-white">{aliveCells}</span>
           </span>
+          {/* 鑑賞モードトグル */}
+          <button
+            onClick={() => setIsWatchMode(!isWatchMode)}
+            disabled={injectedCells.length === 0}
+            className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+              isWatchMode
+                ? 'bg-[#6C5CE7] text-white'
+                : 'bg-white/10 text-white/60 hover:bg-white/20'
+            }`}
+            title={isWatchMode ? 'Watch mode: ON' : 'Watch mode: OFF'}
+          >
+            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
+            </svg>
+            Watch
+          </button>
           {/* ドラッグモードトグル */}
-          {mode === 'edit' && (
+          {mode === 'edit' && !isWatchMode && (
             <button
               onClick={() => setIsDragMode(!isDragMode)}
               className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors ${
@@ -727,11 +837,10 @@ export const SegmentEditor = memo(function SegmentEditor({
 
         <span
           className={`text-sm font-medium ${
-            cellCountValid ? 'text-green-400' : 'text-red-400'
+            cellCountValid ? 'text-green-400' : 'text-white/60'
           }`}
         >
-          {injectedCells.length}{' '}
-          <span className="text-white/40">(max {maxCells})</span>
+          {injectedCells.length} <span className="text-white/40">cells</span>
         </span>
       </div>
 
@@ -742,7 +851,7 @@ export const SegmentEditor = memo(function SegmentEditor({
         max={mode === 'play' && history.length > 0 ? history.length - 1 : nGenerations}
         value={mode === 'play' ? currentGeneration : 0}
         onChange={handleSliderChange}
-        disabled={mode === 'edit'}
+        disabled={mode === 'edit' || isWatchMode}
         className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed
           [&::-webkit-slider-thumb]:appearance-none
           [&::-webkit-slider-thumb]:w-4
@@ -770,6 +879,7 @@ export const SegmentEditor = memo(function SegmentEditor({
           </svg>
         </button>
 
+        {/* 先頭へ */}
         <button
           onClick={goToStart}
           disabled={mode === 'edit'}
@@ -781,6 +891,7 @@ export const SegmentEditor = memo(function SegmentEditor({
           </svg>
         </button>
 
+        {/* 前へ */}
         <button
           onClick={prevGen}
           disabled={mode === 'edit' || currentGeneration === 0}
@@ -792,7 +903,7 @@ export const SegmentEditor = memo(function SegmentEditor({
           </svg>
         </button>
 
-        {/* 再生/シミュレーションボタン */}
+        {/* 再生/一時停止/シミュレーションボタン */}
         <button
           onClick={mode === 'edit' ? runSim : togglePlay}
           disabled={mode === 'edit' && !cellCountValid}
@@ -814,6 +925,7 @@ export const SegmentEditor = memo(function SegmentEditor({
           )}
         </button>
 
+        {/* 次へ */}
         <button
           onClick={nextGen}
           disabled={mode === 'edit' || currentGeneration === history.length - 1}
@@ -825,6 +937,7 @@ export const SegmentEditor = memo(function SegmentEditor({
           </svg>
         </button>
 
+        {/* 末尾へ */}
         <button
           onClick={goToEnd}
           disabled={mode === 'edit'}
@@ -836,6 +949,7 @@ export const SegmentEditor = memo(function SegmentEditor({
           </svg>
         </button>
 
+        {/* スピード */}
         <button
           onClick={cycleSpeed}
           className="ml-1 px-2 py-1 text-xs font-medium rounded bg-white/10 hover:bg-white/20 transition-colors text-white"
@@ -844,6 +958,7 @@ export const SegmentEditor = memo(function SegmentEditor({
           {speed}x
         </button>
 
+        {/* リセット */}
         <button
           onClick={handleReset}
           disabled={mode === 'edit'}
@@ -856,6 +971,7 @@ export const SegmentEditor = memo(function SegmentEditor({
           </svg>
         </button>
 
+        {/* クリア */}
         <button
           onClick={handleClear}
           disabled={mode === 'play' || injectedCells.length === 0}
