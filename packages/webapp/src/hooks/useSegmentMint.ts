@@ -7,11 +7,10 @@ import {
   useAccount,
   useWriteContract,
   useWaitForTransactionReceipt,
-  useReadContract,
 } from 'wagmi';
-import { parseEther, keccak256, toHex } from 'viem';
 import { SEGMENT_NFT_ABI } from '@/lib/contracts/segment-nft-abi';
 import { CONTRACT_ADDRESSES, currentChain } from '@/lib/wagmi-config';
+import { calculatePrice } from '@/lib/price-calculator';
 import type { Cell } from '@/types';
 
 /**
@@ -48,7 +47,7 @@ interface UseSegmentMintResult {
   error: Error | null;
   txHash: `0x${string}` | undefined;
   // 計算値
-  fee: bigint | undefined;
+  fee: bigint;
   cellsEncoded: `0x${string}`;
   // アクション
   mint: () => void;
@@ -66,14 +65,8 @@ export function useSegmentMint({
   // セルをエンコード
   const cellsEncoded = encodeCells(cells);
 
-  // 手数料を取得
-  const { data: fee } = useReadContract({
-    address: CONTRACT_ADDRESSES.segmentNFT,
-    abi: SEGMENT_NFT_ABI,
-    functionName: 'calculateFee',
-    args: [nGenerations, BigInt(cells.length)],
-    chainId: currentChain.id,
-  });
+  // 手数料はローカル計算（Draw中にRPCを叩かない）
+  const fee = calculatePrice(nGenerations, cells.length);
 
   // トランザクション書き込み
   const {
@@ -105,11 +98,6 @@ export function useSegmentMint({
   const mint = () => {
     if (!isConnected || !address || cells.length === 0) {
       setError(new Error('Not connected or no cells'));
-      return;
-    }
-
-    if (!fee) {
-      setError(new Error('Fee not calculated'));
       return;
     }
 
