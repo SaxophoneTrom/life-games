@@ -1,53 +1,41 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import { FarcasterProvider } from "@/providers/FarcasterProvider";
-import "./globals.css";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
-// Mini App Embed メタデータ
-const miniAppEmbed = {
-  version: "1",
-  imageUrl: `${process.env.NEXT_PUBLIC_APP_URL || "https://life-games.vercel.app"}/og-image.png`,
-  button: {
-    title: "Play Life Games",
-    action: {
-      type: "launch_frame",
-      name: "Life Games",
-      url: process.env.NEXT_PUBLIC_APP_URL || "https://life-games.vercel.app",
-      splashImageUrl: `${process.env.NEXT_PUBLIC_APP_URL || "https://life-games.vercel.app"}/splash.png`,
-      splashBackgroundColor: "#000000",
-    },
-  },
-};
+import type { Metadata } from 'next';
+import { Providers } from '@/providers/Providers';
+import { Header } from '@/components/layout/Header';
+import { BottomNav } from '@/components/layout/BottomNav';
+import { SafeAreaWrapper } from '@/components/layout/SafeAreaWrapper';
+import './globals.css';
 
 export const metadata: Metadata = {
-  title: "Life Games",
-  description: "Conway's Game of Life NFT Competition on Base",
-  other: {
-    "fc:miniapp": JSON.stringify(miniAppEmbed),
+  title: 'Infinite Life',
+  description: 'Shared Conway\'s Game of Life on Farcaster',
+  openGraph: {
+    title: 'Infinite Life',
+    description: 'Shared Conway\'s Game of Life on Farcaster',
+    type: 'website',
   },
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
     <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        <FarcasterProvider>{children}</FarcasterProvider>
+      <head>
+        {/* Farcaster Mini App メタタグ */}
+        <meta name="fc:miniapp" content="true" />
+      </head>
+      <body className="bg-[#0B0F14] text-white">
+        <Providers>
+          <Header />
+          <SafeAreaWrapper>
+            <main className="max-w-[424px] mx-auto px-4">
+              {children}
+            </main>
+          </SafeAreaWrapper>
+          <BottomNav />
+        </Providers>
       </body>
     </html>
   );

@@ -13,6 +13,9 @@
     "@farcaster/miniapp-wagmi-connector": "^1.1.0",
     "@supabase/supabase-js": "^2.87.1",
     "@tanstack/react-query": "^5.90.12",
+    "canvas": "^3.2.0",
+    "gif-encoder-2": "^1.0.5",
+    "gif.js": "^0.2.0",
     "merkletreejs": "^0.6.0",
     "next": "16.0.10",
     "react": "19.2.1",
@@ -29,6 +32,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.0.10",
     "tailwindcss": "^4",
+    "tsx": "^4.21.0",
     "typescript": "^5"
   }
 }
