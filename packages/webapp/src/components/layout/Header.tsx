@@ -9,11 +9,11 @@ export function Header() {
       <div className="flex items-center justify-between h-full px-4 max-w-[424px] mx-auto">
         {/* Logo */}
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 bg-gradient-to-br from-[#F67280] to-[#C06C84] rounded-md flex items-center justify-center">
-            <span className="text-xs font-bold text-white">IL</span>
+          <div className="w-6 h-6 bg-blue-600 rounded-md flex items-center justify-center">
+            <span className="text-xs font-bold text-white">B</span>
           </div>
           <span className="text-base font-semibold text-white">
-            Infinite Life
+            Game Of Life
           </span>
         </div>
 
