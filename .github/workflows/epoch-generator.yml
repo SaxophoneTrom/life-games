@@ -64,7 +64,7 @@ jobs:
         env:
           # チェーン設定
           NEXT_PUBLIC_CHAIN_ID: ${{ vars.CHAIN_ID }}
-          NEXT_PUBLIC_RPC_URL: ${{ vars.RPC_URL }}
+          NEXT_PUBLIC_RPC_URL: ${{ secrets.RPC_URL }}
 
           # コントラクトアドレス
           NEXT_PUBLIC_SEGMENT_NFT_ADDRESS: ${{ vars.SEGMENT_NFT_ADDRESS }}
