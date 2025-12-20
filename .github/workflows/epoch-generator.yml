@@ -62,12 +62,13 @@ jobs:
 
       - name: Run Epoch Generator
         env:
+          # チェーン設定
+          NEXT_PUBLIC_CHAIN_ID: ${{ vars.CHAIN_ID }}
+          NEXT_PUBLIC_RPC_URL: ${{ vars.RPC_URL }}
+
           # コントラクトアドレス
           NEXT_PUBLIC_SEGMENT_NFT_ADDRESS: ${{ vars.SEGMENT_NFT_ADDRESS }}
           NEXT_PUBLIC_EPOCH_ARCHIVE_NFT_ADDRESS: ${{ vars.EPOCH_ARCHIVE_NFT_ADDRESS }}
-
-          # RPC URL
-          BASE_SEPOLIA_RPC_URL: ${{ secrets.BASE_SEPOLIA_RPC_URL || 'https://sepolia.base.org' }}
 
           # Epoch Minter秘密鍵（GitHub Secrets）
           EPOCH_MINTER_PRIVATE_KEY: ${{ secrets.EPOCH_MINTER_PRIVATE_KEY }}
